@@ -4,6 +4,7 @@
 
 import check from '../check';
 import parse from '../parse';
+import table from '../table';
 
 function parseWindowsKernTable(p) {
     const pairs = {};
@@ -66,4 +67,33 @@ function parseKernTable(data, start) {
     }
 }
 
-export default { parse: parseKernTable };
+function makeKernTable(pairs) {
+    const entries = Object.entries(pairs);
+    const nPairs = entries.length;
+    const largestPow2 = Math.floor(Math.log(nPairs) / Math.log(2));
+    const entrySelector = Math.log(largestPow2) / Math.log(2);
+    const records = [];
+    for (let i = 0; i < nPairs; i++) {
+        const key = entries[i][0];
+        const split = key.split(',');
+        const value = entries[i][1];
+        records.push({ name: i + 'Left', type: 'USHORT', value: Number(split[0]) });
+        records.push({ name: i + 'Right', type: 'USHORT', value: Number(split[1]) });
+        records.push({ name: i + 'Value', type: 'FWORD', value: value });
+    }
+
+    // Hardcode a single kerning subtable with its records
+    return new table.Table('kern', [
+	        {name: 'version', type: 'USHORT', value: 0},
+	        {name: 'nTables', type: 'USHORT', value: 1},
+            {name: 'version', type: 'USHORT', value: 0},
+            {name: 'length', type: 'USHORT', value: 14 + nPairs * 6 },
+            {name: 'coverage', type: 'USHORT', value: 1},
+            {name: 'nPairs', type: 'USHORT', value: nPairs},
+            {name: 'searchRange', type: 'USHORT', value: largestPow2 * 6}, 
+            {name: 'entrySelector', type: 'USHORT', value: entrySelector},
+            {name: 'rangeShift', type: 'USHORT', value: (nPairs - largestPow2) * 6},
+    ].concat(records));
+}
+
+export default { parse: parseKernTable, make: makeKernTable };

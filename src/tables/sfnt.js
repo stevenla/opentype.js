@@ -21,6 +21,7 @@ import gsub from './gsub';
 import meta from './meta';
 import colr from './colr';
 import cpal from './cpal';
+import kern from './kern';
 
 function log2(v) {
     return Math.log(v) / Math.log(2) | 0;
@@ -299,8 +300,10 @@ function fontToSfntTable(font) {
 
     const metaTable = (font.metas && Object.keys(font.metas).length > 0) ? meta.make(font.metas) : undefined;
 
+    const kernTable = kern.make(font.kerningPairs);
+
     // The order does not matter because makeSfntTable() will sort them.
-    const tables = [headTable, hheaTable, maxpTable, os2Table, nameTable, cmapTable, postTable, cffTable, hmtxTable];
+    const tables = [headTable, hheaTable, maxpTable, os2Table, nameTable, cmapTable, postTable, cffTable, hmtxTable, kernTable];
     if (ltagTable) {
         tables.push(ltagTable);
     }

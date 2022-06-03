@@ -1684,8 +1684,14 @@ encode.DICT = function(m) {
         var k = parseInt(keys[i], 0);
         var v = m[k];
         // Value comes before the key.
-        d = d.concat(encode.OPERAND(v.value, v.type));
-        d = d.concat(encode.OPERATOR(k));
+        var enc1 = encode.OPERAND(v.value, v.type);
+        var enc2 = encode.OPERATOR(k);
+        for (var j = 0; j < enc1.length; j++) {
+            d.push(enc1[j]);
+        }
+        for (var j$1 = 0; j$1 < enc2.length; j$1++) {
+            d.push(enc2[j$1]);
+        }
     }
 
     return d;
@@ -1721,19 +1727,34 @@ encode.OPERAND = function(v, type) {
     if (Array.isArray(type)) {
         for (var i = 0; i < type.length; i += 1) {
             check.argument(v.length === type.length, 'Not enough arguments given for type' + type);
-            d = d.concat(encode.OPERAND(v[i], type[i]));
+            var enc1 = encode.OPERAND(v[i], type[i]);
+            for (var j = 0; j < enc1.length; j++) {
+                d.push(enc1[j]);
+            }
         }
     } else {
         if (type === 'SID') {
-            d = d.concat(encode.NUMBER(v));
+            var enc1$1 = encode.NUMBER(v);
+            for (var j$1 = 0; j$1 < enc1$1.length; j$1++) {
+                d.push(enc1$1[j$1]);
+            }
         } else if (type === 'offset') {
             // We make it easy for ourselves and always encode offsets as
             // 4 bytes. This makes offset calculation for the top dict easier.
-            d = d.concat(encode.NUMBER32(v));
+            var enc1$2 = encode.NUMBER32(v);
+            for (var j$2 = 0; j$2 < enc1$2.length; j$2++) {
+                d.push(enc1$2[j$2]);
+            }
         } else if (type === 'number') {
-            d = d.concat(encode.NUMBER(v));
+            var enc1$3 = encode.NUMBER(v);
+            for (var j$3 = 0; j$3 < enc1$3.length; j$3++) {
+                d.push(enc1$3[j$3]);
+            }
         } else if (type === 'real') {
-            d = d.concat(encode.REAL(v));
+            var enc1$4 = encode.REAL(v);
+            for (var j$4 = 0; j$4 < enc1$4.length; j$4++) {
+                d.push(enc1$4[j$4]);
+            }
         } else {
             throw new Error('Unknown operand type ' + type);
             // FIXME Add support for booleans
@@ -1768,7 +1789,10 @@ encode.CHARSTRING = function(ops) {
 
     for (var i = 0; i < length; i += 1) {
         var op = ops[i];
-        d = d.concat(encode[op.type](op.value));
+        var enc1 = encode[op.type](op.value);
+        for (var j = 0; j < enc1.length; j++) {
+            d.push(enc1[j]);
+        }
     }
 
     if (wmm) {
@@ -1835,10 +1859,12 @@ encode.TABLE = function(table) {
 
         if (field.type === 'TABLE') {
             subtableOffsets.push(d.length);
-            d = d.concat([0, 0]);
+            d.push(0, 0);
             subtables.push(bytes);
         } else {
-            d = d.concat(bytes);
+            for (var j = 0; j < bytes.length; j++) {
+                d.push(bytes[j]);
+            }
         }
     }
 
@@ -1848,7 +1874,9 @@ encode.TABLE = function(table) {
         check.argument(offset < 65536, 'Table ' + table.tableName + ' too big.');
         d[o] = offset >> 8;
         d[o + 1] = offset & 0xff;
-        d = d.concat(subtables[i$1]);
+        for (var j$1 = 0; j$1 < subtables[i$1].length; j$1++) {
+            d.push(subtables[i$1][j$1]);
+        }
     }
 
     return d;
@@ -3349,6 +3377,7 @@ function getPathDefinition(glyph, path) {
         }
     };
 }
+
 /**
  * @typedef GlyphOptions
  * @type Object
@@ -3360,6 +3389,7 @@ function getPathDefinition(glyph, path) {
  * @property {number} [xMax]
  * @property {number} [yMax]
  * @property {number} [advanceWidth]
+ * @property {number} [leftSideBearing]
  */
 
 // A Glyph is an individual mark that often corresponds to a character.
@@ -3410,6 +3440,10 @@ Glyph.prototype.bindConstructorValues = function(options) {
 
     if ('advanceWidth' in options) {
         this.advanceWidth = options.advanceWidth;
+    }
+
+    if ('leftSideBearing' in options) {
+        this.leftSideBearing = options.leftSideBearing;
     }
 
     // The path for a glyph is the most memory intensive, and is bound as a value
@@ -6558,7 +6592,7 @@ subtableParsers[1] = function parseLookup1() {
         return {
             substFormat: 1,
             coverage: this.parsePointer(Parser.coverage),
-            deltaGlyphId: this.parseUShort()
+            deltaGlyphId: this.parseShort()
         };
     } else if (substFormat === 2) {
         return {
@@ -6762,7 +6796,7 @@ subtableMakers[1] = function makeLookup1(subtable) {
         return new table.Table('substitutionTable', [
             {name: 'substFormat', type: 'USHORT', value: 1},
             {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
-            {name: 'deltaGlyphID', type: 'USHORT', value: subtable.deltaGlyphId}
+            {name: 'deltaGlyphID', type: 'SHORT', value: subtable.deltaGlyphId}
         ]);
     } else {
         return new table.Table('substitutionTable', [
@@ -7021,6 +7055,99 @@ function makeCpalTable(ref) {
 }
 
 var cpal = { parse: parseCpalTable, make: makeCpalTable };
+
+// The `kern` table contains kerning pairs.
+
+function parseWindowsKernTable(p) {
+    var pairs = {};
+    // Skip nTables.
+    p.skip('uShort');
+    var subtableVersion = p.parseUShort();
+    check.argument(subtableVersion === 0, 'Unsupported kern sub-table version.');
+    // Skip subtableLength, subtableCoverage
+    p.skip('uShort', 2);
+    var nPairs = p.parseUShort();
+    // Skip searchRange, entrySelector, rangeShift.
+    p.skip('uShort', 3);
+    for (var i = 0; i < nPairs; i += 1) {
+        var leftIndex = p.parseUShort();
+        var rightIndex = p.parseUShort();
+        var value = p.parseShort();
+        pairs[leftIndex + ',' + rightIndex] = value;
+    }
+    return pairs;
+}
+
+function parseMacKernTable(p) {
+    var pairs = {};
+    // The Mac kern table stores the version as a fixed (32 bits) but we only loaded the first 16 bits.
+    // Skip the rest.
+    p.skip('uShort');
+    var nTables = p.parseULong();
+    //check.argument(nTables === 1, 'Only 1 subtable is supported (got ' + nTables + ').');
+    if (nTables > 1) {
+        console.warn('Only the first kern subtable is supported.');
+    }
+    p.skip('uLong');
+    var coverage = p.parseUShort();
+    var subtableVersion = coverage & 0xFF;
+    p.skip('uShort');
+    if (subtableVersion === 0) {
+        var nPairs = p.parseUShort();
+        // Skip searchRange, entrySelector, rangeShift.
+        p.skip('uShort', 3);
+        for (var i = 0; i < nPairs; i += 1) {
+            var leftIndex = p.parseUShort();
+            var rightIndex = p.parseUShort();
+            var value = p.parseShort();
+            pairs[leftIndex + ',' + rightIndex] = value;
+        }
+    }
+    return pairs;
+}
+
+// Parse the `kern` table which contains kerning pairs.
+function parseKernTable(data, start) {
+    var p = new parse.Parser(data, start);
+    var tableVersion = p.parseUShort();
+    if (tableVersion === 0) {
+        return parseWindowsKernTable(p);
+    } else if (tableVersion === 1) {
+        return parseMacKernTable(p);
+    } else {
+        throw new Error('Unsupported kern table version (' + tableVersion + ').');
+    }
+}
+
+function makeKernTable(pairs) {
+    var entries = Object.entries(pairs);
+    var nPairs = entries.length;
+    var largestPow2 = Math.floor(Math.log(nPairs) / Math.log(2));
+    var entrySelector = Math.log(largestPow2) / Math.log(2);
+    var records = [];
+    for (var i = 0; i < nPairs; i++) {
+        var key = entries[i][0];
+        var split = key.split(',');
+        var value = entries[i][1];
+        records.push({ name: i + 'Left', type: 'USHORT', value: Number(split[0]) });
+        records.push({ name: i + 'Right', type: 'USHORT', value: Number(split[1]) });
+        records.push({ name: i + 'Value', type: 'FWORD', value: value });
+    }
+
+    // Hardcode a single kerning subtable with its records
+    return new table.Table('kern', [
+	        {name: 'version', type: 'USHORT', value: 0},
+	        {name: 'nTables', type: 'USHORT', value: 1},
+            {name: 'version', type: 'USHORT', value: 0},
+            {name: 'length', type: 'USHORT', value: 14 + nPairs * 6 },
+            {name: 'coverage', type: 'USHORT', value: 1},
+            {name: 'nPairs', type: 'USHORT', value: nPairs},
+            {name: 'searchRange', type: 'USHORT', value: largestPow2 * 6}, 
+            {name: 'entrySelector', type: 'USHORT', value: entrySelector},
+            {name: 'rangeShift', type: 'USHORT', value: (nPairs - largestPow2) * 6} ].concat(records));
+}
+
+var kern = { parse: parseKernTable, make: makeKernTable };
 
 // The `sfnt` wrapper provides organization for the tables in the font.
 
@@ -7301,8 +7428,10 @@ function fontToSfntTable(font) {
 
     var metaTable = (font.metas && Object.keys(font.metas).length > 0) ? meta.make(font.metas) : undefined;
 
+    var kernTable = kern.make(font.kerningPairs);
+
     // The order does not matter because makeSfntTable() will sort them.
-    var tables = [headTable, hheaTable, maxpTable, os2Table, nameTable, cmapTable, postTable, cffTable, hmtxTable];
+    var tables = [headTable, hheaTable, maxpTable, os2Table, nameTable, cmapTable, postTable, cffTable, hmtxTable, kernTable];
     if (ltagTable) {
         tables.push(ltagTable);
     }
@@ -8132,7 +8261,7 @@ function nodeBufferToArrayBuffer(buffer) {
 }
 
 function arrayBufferToNodeBuffer(ab) {
-    var buffer = new Buffer(ab.byteLength);
+    var buffer = Buffer.alloc(ab.byteLength);
     var view = new Uint8Array(ab);
     for (var i = 0; i < buffer.length; ++i) {
         buffer[i] = view[i];
@@ -14054,71 +14183,6 @@ function makeGposTable(gpos) {
 }
 
 var gpos = { parse: parseGposTable, make: makeGposTable };
-
-// The `kern` table contains kerning pairs.
-
-function parseWindowsKernTable(p) {
-    var pairs = {};
-    // Skip nTables.
-    p.skip('uShort');
-    var subtableVersion = p.parseUShort();
-    check.argument(subtableVersion === 0, 'Unsupported kern sub-table version.');
-    // Skip subtableLength, subtableCoverage
-    p.skip('uShort', 2);
-    var nPairs = p.parseUShort();
-    // Skip searchRange, entrySelector, rangeShift.
-    p.skip('uShort', 3);
-    for (var i = 0; i < nPairs; i += 1) {
-        var leftIndex = p.parseUShort();
-        var rightIndex = p.parseUShort();
-        var value = p.parseShort();
-        pairs[leftIndex + ',' + rightIndex] = value;
-    }
-    return pairs;
-}
-
-function parseMacKernTable(p) {
-    var pairs = {};
-    // The Mac kern table stores the version as a fixed (32 bits) but we only loaded the first 16 bits.
-    // Skip the rest.
-    p.skip('uShort');
-    var nTables = p.parseULong();
-    //check.argument(nTables === 1, 'Only 1 subtable is supported (got ' + nTables + ').');
-    if (nTables > 1) {
-        console.warn('Only the first kern subtable is supported.');
-    }
-    p.skip('uLong');
-    var coverage = p.parseUShort();
-    var subtableVersion = coverage & 0xFF;
-    p.skip('uShort');
-    if (subtableVersion === 0) {
-        var nPairs = p.parseUShort();
-        // Skip searchRange, entrySelector, rangeShift.
-        p.skip('uShort', 3);
-        for (var i = 0; i < nPairs; i += 1) {
-            var leftIndex = p.parseUShort();
-            var rightIndex = p.parseUShort();
-            var value = p.parseShort();
-            pairs[leftIndex + ',' + rightIndex] = value;
-        }
-    }
-    return pairs;
-}
-
-// Parse the `kern` table which contains kerning pairs.
-function parseKernTable(data, start) {
-    var p = new parse.Parser(data, start);
-    var tableVersion = p.parseUShort();
-    if (tableVersion === 0) {
-        return parseWindowsKernTable(p);
-    } else if (tableVersion === 1) {
-        return parseMacKernTable(p);
-    } else {
-        throw new Error('Unsupported kern table version (' + tableVersion + ').');
-    }
-}
-
-var kern = { parse: parseKernTable };
 
 // The `loca` table stores the offsets to the locations of the glyphs in the font.
 
